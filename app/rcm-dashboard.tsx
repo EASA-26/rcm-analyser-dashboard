@@ -1407,6 +1407,407 @@ function buildRecommendations(summary: AnalysisSummary, meta: ReportMeta) {
   ];
 }
 
+function escapeHtml(value: CellValue | string) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function htmlCell(value: CellValue | string) {
+  return escapeHtml(value).replace(/\n/g, "<br />");
+}
+
+function reportTable(headers: string[], rows: Array<Array<CellValue | string>>, className = "") {
+  return `
+    <div class="table-wrap ${className}">
+      <table>
+        <thead>
+          <tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr>
+        </thead>
+        <tbody>
+          ${
+            rows.length
+              ? rows
+                  .map(
+                    (row) => `
+                      <tr>${row.map((cell) => `<td>${htmlCell(cell)}</td>`).join("")}</tr>
+                    `,
+                  )
+                  .join("")
+              : `<tr><td colspan="${headers.length}">No data available.</td></tr>`
+          }
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function metricBlock(label: string, value: CellValue, note: string) {
+  return `
+    <article class="metric">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+      <small>${escapeHtml(note)}</small>
+    </article>
+  `;
+}
+
+function exportPdfReport(summary: AnalysisSummary, meta: ReportMeta) {
+  const reportWindow = window.open("", "_blank");
+  if (!reportWindow) {
+    throw new Error("The PDF report window was blocked. Allow pop-ups for this site and try again.");
+  }
+
+  const comparisonRows = buildComparisonRows(summary).slice(0, 80);
+  const recommendations = buildRecommendations(summary, meta);
+  const logoUrl = new URL("tnb-genco-logo.png", window.location.href).href;
+  const rcmIconUrl = new URL("rcm-favicon.png", window.location.href).href;
+  const generatedAt = new Date().toLocaleString();
+  const strategyRows = summary.strategySummary
+    .filter((item) => item.revised > 0 || item.existing > 0)
+    .map((item) => [
+      item.code,
+      item.label,
+      item.existing,
+      item.revised,
+      Math.max(0, item.revised - item.existing),
+    ]);
+  const workCenterRows = summary.workCenters.map((item) => [
+    item.name,
+    item.total,
+    item.executed,
+    item.pending,
+    pct(item.executed, item.total),
+  ]);
+  const comparisonTableRows = comparisonRows.map((row) => [
+    row.recommended[0],
+    row.recommended[1],
+    row.recommended[2],
+    row.current[3],
+    row.current[4],
+    row.recommended[3],
+    row.recommended[4],
+    row.recommended[5],
+    row.recommended[6],
+  ]);
+  const duplicateRows = summary.duplicateRows.map((row) => [
+    row.failureMode,
+    row.proposedTask || "No proposed task",
+    row.duplicateCount,
+  ]);
+
+  const html = `<!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>RCM Genco PDF Report - ${escapeHtml(meta.assetName)}</title>
+        <style>
+          @page { margin: 14mm; size: A4; }
+          * { box-sizing: border-box; }
+          body {
+            color: #12233b;
+            font-family: Arial, Helvetica, sans-serif;
+            margin: 0;
+            background: #ffffff;
+          }
+          .cover {
+            min-height: 940px;
+            background:
+              linear-gradient(145deg, rgba(3, 89, 153, 0.92), rgba(15, 171, 204, 0.70)),
+              linear-gradient(180deg, #eaf8ff, #ffffff);
+            color: white;
+            padding: 38px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            page-break-after: always;
+          }
+          .cover-top, .report-top {
+            align-items: center;
+            display: flex;
+            justify-content: space-between;
+            gap: 18px;
+          }
+          .brand {
+            background: rgba(255,255,255,0.92);
+            border-radius: 8px;
+            padding: 8px 12px;
+          }
+          .brand img { height: 48px; width: auto; }
+          .rcm-mark {
+            align-items: center;
+            display: flex;
+            gap: 12px;
+            font-size: 13px;
+            font-weight: 800;
+            letter-spacing: 0;
+            text-transform: uppercase;
+          }
+          .rcm-mark img { border-radius: 5px; height: 42px; object-fit: cover; width: 42px; }
+          .cover h1 {
+            font-size: 46px;
+            letter-spacing: 0;
+            line-height: 1.05;
+            margin: 80px 0 12px;
+            max-width: 720px;
+          }
+          .cover .subtitle {
+            color: rgba(255,255,255,0.86);
+            font-size: 18px;
+            font-weight: 700;
+            line-height: 1.45;
+            max-width: 680px;
+          }
+          .meta-grid {
+            border-top: 1px solid rgba(255,255,255,0.35);
+            display: grid;
+            gap: 12px;
+            grid-template-columns: repeat(4, 1fr);
+            padding-top: 20px;
+          }
+          .meta-grid span, .metric span, .section-kicker {
+            color: #5b708a;
+            display: block;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0;
+            text-transform: uppercase;
+          }
+          .cover .meta-grid span { color: rgba(255,255,255,0.72); }
+          .meta-grid strong {
+            display: block;
+            font-size: 14px;
+            line-height: 1.35;
+            margin-top: 4px;
+          }
+          .page {
+            padding: 0;
+            page-break-after: always;
+          }
+          .report-top {
+            border-bottom: 3px solid #0878c9;
+            margin-bottom: 18px;
+            padding-bottom: 12px;
+          }
+          .report-top h2 {
+            font-size: 24px;
+            line-height: 1.15;
+            margin: 2px 0 0;
+          }
+          .section {
+            break-inside: avoid;
+            margin: 0 0 20px;
+          }
+          .section h3 {
+            color: #07518e;
+            font-size: 17px;
+            margin: 4px 0 10px;
+          }
+          .metric-grid {
+            display: grid;
+            gap: 10px;
+            grid-template-columns: repeat(4, 1fr);
+            margin-bottom: 18px;
+          }
+          .metric {
+            background: linear-gradient(180deg, #f4fbff, #ffffff);
+            border: 1px solid #c9e5f5;
+            border-radius: 8px;
+            padding: 12px;
+          }
+          .metric strong {
+            color: #07518e;
+            display: block;
+            font-size: 30px;
+            line-height: 1;
+            margin: 8px 0 6px;
+          }
+          .metric small {
+            color: #5b708a;
+            font-size: 11px;
+            font-weight: 700;
+          }
+          .insight-grid {
+            display: grid;
+            gap: 14px;
+            grid-template-columns: 1fr 1fr;
+          }
+          .recommendations {
+            counter-reset: rec;
+            display: grid;
+            gap: 10px;
+            margin: 0;
+            padding: 0;
+          }
+          .recommendations li {
+            background: #f7fbff;
+            border-left: 4px solid #f26a2e;
+            border-radius: 6px;
+            line-height: 1.45;
+            list-style: none;
+            padding: 10px 12px;
+          }
+          .table-wrap {
+            border: 1px solid #d8e7f2;
+            border-radius: 8px;
+            overflow: hidden;
+          }
+          table {
+            border-collapse: collapse;
+            width: 100%;
+          }
+          th {
+            background: #0878c9;
+            color: white;
+            font-size: 10px;
+            padding: 7px 6px;
+            text-align: left;
+            text-transform: uppercase;
+          }
+          td {
+            border-top: 1px solid #e3edf4;
+            font-size: 10px;
+            line-height: 1.3;
+            padding: 6px;
+            vertical-align: top;
+          }
+          tbody tr:nth-child(even) td { background: #f7fbff; }
+          .comparison td:nth-child(4),
+          .comparison td:nth-child(6) { min-width: 130px; }
+          .note {
+            color: #5b708a;
+            font-size: 11px;
+            line-height: 1.45;
+            margin-top: 8px;
+          }
+          .footer {
+            border-top: 1px solid #d8e7f2;
+            color: #6a7c91;
+            font-size: 10px;
+            margin-top: 14px;
+            padding-top: 8px;
+          }
+          @media print {
+            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          }
+        </style>
+      </head>
+      <body>
+        <section class="cover">
+          <div class="cover-top">
+            <div class="rcm-mark"><img src="${rcmIconUrl}" alt="" /> RCM Genco</div>
+            <div class="brand"><img src="${logoUrl}" alt="TNB Genco" /></div>
+          </div>
+          <div>
+            <h1>Reliability Centered Maintenance Analysis Report</h1>
+            <div class="subtitle">
+              Dashboard-generated PDF summary for ${escapeHtml(meta.assetName)} using the uploaded raw RCM workbook data.
+            </div>
+          </div>
+          <div class="meta-grid">
+            <div><span>Station</span><strong>${escapeHtml(meta.station || "-")}</strong></div>
+            <div><span>System</span><strong>${escapeHtml(meta.assetName || "-")}</strong></div>
+            <div><span>Analysis Date</span><strong>${escapeHtml(meta.analysisDate || "-")}</strong></div>
+            <div><span>Source</span><strong>${escapeHtml(summary.fileName)}</strong></div>
+          </div>
+        </section>
+
+        <section class="page">
+          <header class="report-top">
+            <div>
+              <span class="section-kicker">Executive Summary</span>
+              <h2>RCM analysis converts uploaded raw data into actionable maintenance insight.</h2>
+            </div>
+            <div class="brand"><img src="${logoUrl}" alt="TNB Genco" /></div>
+          </header>
+          <div class="metric-grid">
+            ${metricBlock("Functions analysed", summary.functionsRevised, `${summary.functionsExisting} existing`)}
+            ${metricBlock("Failure modes", summary.failureModesRevised, `${summary.failureModesExisting} existing`)}
+            ${metricBlock("Maintenance tasks", summary.actionableTasks, `${summary.pendingTasks} newly added`)}
+            ${metricBlock("Task executed", summary.executedTasks, pct(summary.executedTasks, summary.actionableTasks))}
+          </div>
+          <div class="insight-grid">
+            <section class="section">
+              <span class="section-kicker">Maintenance Strategy</span>
+              <h3>Existing vs revised strategy count</h3>
+              ${reportTable(["Code", "Strategy", "Existing", "Revised", "New"], strategyRows)}
+            </section>
+            <section class="section">
+              <span class="section-kicker">Task Ownership</span>
+              <h3>Work-centre execution profile</h3>
+              ${reportTable(["Work Centre", "Total", "Executed", "Pending", "Progress"], workCenterRows)}
+            </section>
+          </div>
+          <section class="section">
+            <span class="section-kicker">Recommendation</span>
+            <h3>Actions to progress the maintenance plan</h3>
+            <ol class="recommendations">
+              ${recommendations.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+            </ol>
+          </section>
+          <div class="footer">Generated ${escapeHtml(generatedAt)} from ${escapeHtml(summary.sheetName)} - ${summary.totalRows} RCM rows.</div>
+        </section>
+
+        <section class="page">
+          <header class="report-top">
+            <div>
+              <span class="section-kicker">Maintenance Plan Comparison</span>
+              <h2>Current maintenance plan compared with RCM recommended plan.</h2>
+            </div>
+            <div class="brand"><img src="${logoUrl}" alt="TNB Genco" /></div>
+          </header>
+          ${reportTable(
+            ["No", "Ref", "Failure Mode", "Current Task", "Current Interval", "RCM Task", "RCM Interval", "Trade", "Remarks"],
+            comparisonTableRows,
+            "comparison",
+          )}
+          <p class="note">Showing the first ${comparisonRows.length} actionable maintenance rows in the PDF report. Export the working file for the full editable register.</p>
+        </section>
+
+        <section class="page">
+          <header class="report-top">
+            <div>
+              <span class="section-kicker">Data Quality</span>
+              <h2>Duplicate task groups and implementation focus areas.</h2>
+            </div>
+            <div class="brand"><img src="${logoUrl}" alt="TNB Genco" /></div>
+          </header>
+          <section class="section">
+            <h3>Duplicate failure-mode/task combinations</h3>
+            ${reportTable(["Failure Mode", "Proposed Task", "Rows"], duplicateRows)}
+          </section>
+          <section class="section">
+            <h3>Report profile</h3>
+            ${reportTable(["Field", "Value"], [
+              ["Station", meta.station || "-"],
+              ["System", meta.assetName || "-"],
+              ["Analysis Date", meta.analysisDate || "-"],
+              ["Audit Date", meta.auditDate || "-"],
+              ["RCM ID", summary.metadata.rcmId || "-"],
+              ["Rows Analysed", summary.totalRows],
+            ])}
+          </section>
+          <div class="footer">RCM Genco PDF report. Use the PowerPoint and working-file exports for editable presentation and workbook handoff.</div>
+        </section>
+        <script>
+          window.addEventListener("load", () => {
+            setTimeout(() => {
+              window.focus();
+              window.print();
+            }, 450);
+          });
+        </script>
+      </body>
+    </html>`;
+
+  reportWindow.document.open();
+  reportWindow.document.write(html);
+  reportWindow.document.close();
+}
+
 function patchRecommendationSlide(xml: string, summary: AnalysisSummary, meta: ReportMeta) {
   const doc = parseXml(xml);
   const recommendations = buildRecommendations(summary, meta)
@@ -1635,6 +2036,7 @@ export default function RCMDashboard() {
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isWorkingExporting, setIsWorkingExporting] = useState(false);
+  const [isPdfExporting, setIsPdfExporting] = useState(false);
   const [reportMeta, setReportMeta] = useState<ReportMeta>({
     station: "Station",
     assetName: "Generator Transformers",
@@ -1706,6 +2108,21 @@ export default function RCMDashboard() {
     }
   }
 
+  async function handlePdfExport() {
+    if (!summary) {
+      return;
+    }
+    setIsPdfExporting(true);
+    setError("");
+    try {
+      exportPdfReport(summary, reportMeta);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The PDF report export failed.");
+    } finally {
+      setIsPdfExporting(false);
+    }
+  }
+
   const themeStyle = {
     "--theme-bg": "url('aspirasi-rt2-theme.png')",
   } as CSSProperties;
@@ -1732,6 +2149,9 @@ export default function RCMDashboard() {
             </button>
             <button disabled={!summary || isWorkingExporting} onClick={handleWorkingFileExport} type="button">
               {isWorkingExporting ? "Preparing XLSM..." : "Export Working File"}
+            </button>
+            <button disabled={!summary || isPdfExporting} onClick={handlePdfExport} type="button">
+              {isPdfExporting ? "Preparing PDF..." : "Export PDF Report"}
             </button>
           </div>
         </div>
