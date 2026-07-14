@@ -1,4 +1,4 @@
-name: Deploy RCM Analyser Dashboard
+name: Deploy RCM Genco
 
 on:
   push:

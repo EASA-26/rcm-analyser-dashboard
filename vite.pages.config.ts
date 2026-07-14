@@ -5,7 +5,7 @@ import { fileURLToPath, URL } from "node:url";
 const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
-  base: "/rcm-analyser-dashboard/",
+  base: "/RCM-Genco/",
   root: projectRoot,
   plugins: [react()],
   build: {

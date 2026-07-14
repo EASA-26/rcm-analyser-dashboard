@@ -1,4 +1,4 @@
-# RCM Analyser Dashboard
+# RCM Genco
 
 React/Vinext dashboard for digitising the RCM report workflow:
 
