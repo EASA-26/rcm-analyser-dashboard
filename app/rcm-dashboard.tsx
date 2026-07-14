@@ -2132,7 +2132,7 @@ export default function RCMDashboard() {
       <section className="topbar">
         <div className="topbar-title">
           <p className="eyebrow">RCM digital report</p>
-          <h1>Reliability Centered Maintenance analyser</h1>
+          <h1>Reliability Centered Maintenance Analyser</h1>
           <p className="topbar-subtitle">Aspirasi RT2.0 styled maintenance intelligence for generation assets.</p>
         </div>
         <div className="topbar-right">
@@ -2170,6 +2170,10 @@ export default function RCMDashboard() {
               onChange={(event) => setReportMeta({ ...reportMeta, station: event.target.value })}
               value={reportMeta.station}
             />
+          </label>
+          <label>
+            <span>RCM ID</span>
+            <input readOnly value={summary?.metadata.rcmId || "Awaiting upload"} />
           </label>
           <label>
             <span>System</span>
