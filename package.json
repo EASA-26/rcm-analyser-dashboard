@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "vinext dev",
     "build": "vinext build",
-    "build:pages": "vite build --config vite.pages.config.ts --base /EASA-26/ --outDir pages-dist",
+    "build:pages": "vite build --config vite.pages.config.ts --base /rcm-analyser-dashboard/ --outDir pages-dist",
     "start": "vinext start",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"

@@ -3,7 +3,7 @@ name: Deploy RCM Analyser Dashboard
 on:
   push:
     branches:
-      - rcm-analyser-dashboard
+      - main
   workflow_dispatch:
 
 permissions:
