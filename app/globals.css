@@ -663,6 +663,24 @@ button:disabled {
   overflow-x: auto;
 }
 
+.table-scroll--preview {
+  max-height: min(62vh, 42rem);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: rgba(7, 81, 142, 0.45) rgba(8, 120, 201, 0.08);
+  scrollbar-width: thin;
+}
+
+.table-scroll--preview thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.table-scroll--preview th {
+  box-shadow: 0 1px 0 rgba(8, 120, 201, 0.16);
+}
+
 table {
   border-collapse: collapse;
   min-width: 720px;

@@ -803,7 +803,7 @@ function TablePreview({ title, rows }: { title: string; rows: RCMRow[] }) {
         <h3>{title}</h3>
         <span>{rows.length} rows</span>
       </div>
-      <div className="table-scroll">
+      <div className="table-scroll table-scroll--preview">
         <table>
           <thead>
             <tr>
@@ -816,7 +816,7 @@ function TablePreview({ title, rows }: { title: string; rows: RCMRow[] }) {
             </tr>
           </thead>
           <tbody>
-            {rows.slice(0, 10).map((row, index) => (
+            {rows.map((row, index) => (
               <tr key={`${row.reference}-${index}`}>
                 <td>{index + 1}</td>
                 <td>{row.reference}</td>
