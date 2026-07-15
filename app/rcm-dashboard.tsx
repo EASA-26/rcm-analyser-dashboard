@@ -2031,7 +2031,7 @@ function MetricCard({ label, value, note }: { label: string; value: number | str
 }
 
 const VISITOR_COUNTER_URL =
-  "https://api.visitorbadge.io/api/visitors?path=https%3A%2F%2Feasa-26.github.io%2FRCM-Genco%2F&label=Total%20visits&labelColor=%2307518e&countColor=%23f26a2e&style=flat-square";
+  "https://komarev.com/ghpvc/?username=easa-26-rcm-genco-dashboard&label=Website%20visits&color=0878c9&style=flat-square";
 
 function VisitorCounter() {
   const [isAvailable, setIsAvailable] = useState(true);
@@ -2048,7 +2048,7 @@ function VisitorCounter() {
           src={VISITOR_COUNTER_URL}
         />
       ) : (
-        <strong>Counter unavailable</strong>
+        <strong>Tracking blocked</strong>
       )}
     </div>
   );
