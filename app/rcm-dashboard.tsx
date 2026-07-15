@@ -2617,7 +2617,6 @@ export default function RCMDashboard() {
         <section className="main-panel">
           <div className="report-header">
             <div>
-              <p>3. ANALYSIS</p>
               <h2>Summary of the RCM Analysis Result</h2>
             </div>
             <span>{summary?.metadata.rcmId || "RCM dashboard"}</span>
