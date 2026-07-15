@@ -1291,6 +1291,15 @@ function setTextNodesText(container: ParentNode, value: string) {
   }
 }
 
+function removeBoldUnderline(container: ParentNode) {
+  for (const propertyName of ["rPr", "endParaRPr", "defRPr"]) {
+    for (const properties of elementsByLocalName(container, propertyName)) {
+      properties.removeAttribute("b");
+      properties.removeAttribute("u");
+    }
+  }
+}
+
 function setTableCellText(cell: Element, value: CellValue) {
   setTextNodesText(cell, String(value ?? ""));
 }
@@ -1415,10 +1424,12 @@ function patchAuditSessionSlide(xml: string, meta: ReportMeta) {
 
     if (fullText.includes("The management of")) {
       setTextNodesText(shape, auditComment ? "RCM Audit Comment" : "");
+      removeBoldUnderline(shape);
     }
 
     if (fullText.includes("Auditors")) {
       setTextNodesText(shape, auditComment);
+      removeBoldUnderline(shape);
     }
   }
 
@@ -2107,12 +2118,27 @@ function MetricCard({ label, value, note }: { label: string; value: number | str
   );
 }
 
+const VISITOR_COUNTER_URL =
+  "https://hits.sh/easa-26.github.io/RCM-Genco.svg?label=Website%20visits&color=0878c9";
+
 function VisitorCounter() {
+  const [isAvailable, setIsAvailable] = useState(true);
+  const counterUrl = useMemo(() => `${VISITOR_COUNTER_URL}&cache=${Date.now()}`, []);
+
   return (
     <div className="visitor-counter">
       <span>Website visits</span>
-      <strong>Analytics not connected</strong>
-      <small>GitHub Pages needs an approved counter endpoint to track total visitors.</small>
+      {isAvailable ? (
+        <img
+          alt="Total website visits"
+          loading="lazy"
+          onError={() => setIsAvailable(false)}
+          referrerPolicy="no-referrer"
+          src={counterUrl}
+        />
+      ) : (
+        <strong>Tracking blocked</strong>
+      )}
     </div>
   );
 }
