@@ -1291,11 +1291,11 @@ function setTextNodesText(container: ParentNode, value: string) {
   }
 }
 
-function removeBoldUnderline(container: ParentNode) {
+function forcePlainPowerPointText(container: ParentNode) {
   for (const propertyName of ["rPr", "endParaRPr", "defRPr"]) {
     for (const properties of elementsByLocalName(container, propertyName)) {
-      properties.removeAttribute("b");
-      properties.removeAttribute("u");
+      properties.setAttribute("b", "0");
+      properties.setAttribute("u", "none");
     }
   }
 }
@@ -1424,12 +1424,12 @@ function patchAuditSessionSlide(xml: string, meta: ReportMeta) {
 
     if (fullText.includes("The management of")) {
       setTextNodesText(shape, auditComment ? "RCM Audit Comment" : "");
-      removeBoldUnderline(shape);
+      forcePlainPowerPointText(shape);
     }
 
     if (fullText.includes("Auditors")) {
       setTextNodesText(shape, auditComment);
-      removeBoldUnderline(shape);
+      forcePlainPowerPointText(shape);
     }
   }
 
