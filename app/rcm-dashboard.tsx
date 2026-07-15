@@ -1301,6 +1301,20 @@ function forcePlainPowerPointText(container: ParentNode) {
   }
 }
 
+function setPowerPointGeometry(container: ParentNode, x: number, y: number, cx: number, cy: number) {
+  const transform = firstElementByLocalName(container, "xfrm");
+  const offset = transform ? firstElementByLocalName(transform, "off") : undefined;
+  const extent = transform ? firstElementByLocalName(transform, "ext") : undefined;
+  if (!offset || !extent) {
+    return;
+  }
+
+  offset.setAttribute("x", String(x));
+  offset.setAttribute("y", String(y));
+  extent.setAttribute("cx", String(cx));
+  extent.setAttribute("cy", String(cy));
+}
+
 function setTableCellText(cell: Element, value: CellValue) {
   setTextNodesText(cell, String(value ?? ""));
 }
@@ -1413,6 +1427,14 @@ function patchSystemBoundarySlide(xml: string) {
 function patchAuditSessionSlide(xml: string, meta: ReportMeta) {
   const doc = parseXml(xml);
   const auditComment = formatAuditComments(meta.auditComments);
+  const tableTop = 1660000;
+  const tableHeight = 4610000;
+  const tableLeft = 381000;
+  const tableWidth = 6925000;
+  const feedbackLeft = 7391643;
+  const feedbackWidth = 4251868;
+  const labelTop = 1080000;
+  const labelHeight = 360000;
 
   for (const shape of [...elementsByLocalName(doc, "sp"), ...elementsByLocalName(doc, "graphicFrame")]) {
     const fullText = elementsByLocalName(shape, "t")
@@ -1420,16 +1442,25 @@ function patchAuditSessionSlide(xml: string, meta: ReportMeta) {
       .join("");
 
     if (fullText.includes("No.NameRolePosition") || fullText.includes("Venue")) {
-      setTextNodesText(shape, "");
+      if (fullText.includes("Venue")) {
+        setTextNodesText(shape, "System \t\t:\nVenue \t\t:\nAnalysis date \t:");
+        setPowerPointGeometry(shape, tableLeft, labelTop, 4400000, labelHeight);
+        forcePlainPowerPointText(shape);
+      } else {
+        setTextNodesText(shape, "");
+        setPowerPointGeometry(shape, tableLeft, tableTop, tableWidth, tableHeight);
+      }
     }
 
     if (fullText.includes("The management of")) {
-      setTextNodesText(shape, auditComment ? "RCM Audit Comment" : "");
+      setTextNodesText(shape, "RCM Audit Feedback");
+      setPowerPointGeometry(shape, feedbackLeft, labelTop + 110000, feedbackWidth, 250000);
       forcePlainPowerPointText(shape);
     }
 
     if (fullText.includes("Auditors")) {
       setTextNodesText(shape, auditComment);
+      setPowerPointGeometry(shape, feedbackLeft, tableTop, feedbackWidth, tableHeight);
       forcePlainPowerPointText(shape);
     }
   }
