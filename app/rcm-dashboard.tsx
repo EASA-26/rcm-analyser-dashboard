@@ -79,7 +79,7 @@ type ReportMeta = {
   assetName: string;
   analysisDate: string;
   auditDate: string;
-  auditComment: string;
+  auditComments: string[];
   preparedBy: string;
 };
 
@@ -142,6 +142,7 @@ const CHART_COLORS = [
 ];
 
 const AUDIT_COMMENT_STORAGE_KEY = "rcm-genco-audit-comment";
+const AUDIT_COMMENTS_STORAGE_KEY = "rcm-genco-audit-comments";
 
 function normalizeHeader(value: CellValue) {
   return String(value ?? "")
@@ -166,11 +167,31 @@ function firstUsable<T>(items: T[], getValue: (item: T) => string) {
   return items.map(getValue).find(isUsableText) ?? "";
 }
 
-function loadSavedAuditComment() {
+function loadSavedAuditComments() {
   if (typeof window === "undefined") {
-    return "";
+    return [];
   }
-  return window.localStorage.getItem(AUDIT_COMMENT_STORAGE_KEY) ?? "";
+
+  const storedComments = window.localStorage.getItem(AUDIT_COMMENTS_STORAGE_KEY);
+  if (storedComments) {
+    try {
+      const parsed = JSON.parse(storedComments);
+      if (Array.isArray(parsed)) {
+        return parsed.map((item) => text(item)).filter(Boolean);
+      }
+    } catch {
+      // Fall back to the legacy single-comment value below.
+    }
+  }
+
+  const legacyComment = text(window.localStorage.getItem(AUDIT_COMMENT_STORAGE_KEY));
+  return legacyComment ? [legacyComment] : [];
+}
+
+function formatAuditComments(comments: string[]) {
+  return comments
+    .map((comment, index) => `${index + 1}. ${comment}`)
+    .join("\n\n");
 }
 
 function isTrue(value: CellValue) {
@@ -1381,7 +1402,7 @@ function patchSystemBoundarySlide(xml: string) {
 
 function patchAuditSessionSlide(xml: string, meta: ReportMeta) {
   const doc = parseXml(xml);
-  const auditComment = meta.auditComment.trim();
+  const auditComment = formatAuditComments(meta.auditComments);
 
   for (const shape of [...elementsByLocalName(doc, "sp"), ...elementsByLocalName(doc, "graphicFrame")]) {
     const fullText = elementsByLocalName(shape, "t")
@@ -1801,7 +1822,7 @@ function exportPdfReport(summary: AnalysisSummary, meta: ReportMeta) {
           <section class="section">
             <span class="section-kicker">RCM Audit Session</span>
             <h3>Management audit comment</h3>
-            <div class="audit-comment">${htmlCell(meta.auditComment || "No audit comment recorded.")}</div>
+            <div class="audit-comment">${htmlCell(formatAuditComments(meta.auditComments) || "No audit comment recorded.")}</div>
           </section>
           <div class="footer">Generated ${escapeHtml(generatedAt)} from ${escapeHtml(summary.sheetName)} - ${summary.totalRows} RCM rows.</div>
         </section>
@@ -1842,7 +1863,7 @@ function exportPdfReport(summary: AnalysisSummary, meta: ReportMeta) {
               ["Analysis Date", meta.analysisDate || "-"],
               ["Audit Date", meta.auditDate || "-"],
               ["RCM ID", summary.metadata.rcmId || "-"],
-              ["RCM Audit Comment", meta.auditComment || "-"],
+              ["RCM Audit Comment", formatAuditComments(meta.auditComments) || "-"],
               ["Rows Analysed", summary.totalRows],
             ])}
           </section>
@@ -2086,26 +2107,12 @@ function MetricCard({ label, value, note }: { label: string; value: number | str
   );
 }
 
-const VISITOR_COUNTER_URL =
-  "https://komarev.com/ghpvc/?username=easa-26-rcm-genco-dashboard&label=Website%20visits&color=0878c9&style=flat-square";
-
 function VisitorCounter() {
-  const [isAvailable, setIsAvailable] = useState(true);
-
   return (
     <div className="visitor-counter">
       <span>Website visits</span>
-      {isAvailable ? (
-        <img
-          alt="Total website visits"
-          loading="lazy"
-          onError={() => setIsAvailable(false)}
-          referrerPolicy="no-referrer"
-          src={VISITOR_COUNTER_URL}
-        />
-      ) : (
-        <strong>Tracking blocked</strong>
-      )}
+      <strong>Analytics not connected</strong>
+      <small>GitHub Pages needs an approved counter endpoint to track total visitors.</small>
     </div>
   );
 }
@@ -2117,18 +2124,20 @@ export default function RCMDashboard() {
   const [isExporting, setIsExporting] = useState(false);
   const [isWorkingExporting, setIsWorkingExporting] = useState(false);
   const [isPdfExporting, setIsPdfExporting] = useState(false);
+  const [auditDraft, setAuditDraft] = useState("");
   const [reportMeta, setReportMeta] = useState<ReportMeta>({
     station: "Station",
     assetName: "Generator Transformers",
     analysisDate: "4th - 7th August 2025",
     auditDate: "3rd October 2025",
-    auditComment: loadSavedAuditComment(),
+    auditComments: loadSavedAuditComments(),
     preparedBy: "RCM Planning",
   });
 
   useEffect(() => {
-    window.localStorage.setItem(AUDIT_COMMENT_STORAGE_KEY, reportMeta.auditComment);
-  }, [reportMeta.auditComment]);
+    window.localStorage.setItem(AUDIT_COMMENTS_STORAGE_KEY, JSON.stringify(reportMeta.auditComments));
+    window.localStorage.removeItem(AUDIT_COMMENT_STORAGE_KEY);
+  }, [reportMeta.auditComments]);
 
   const implementedRows = useMemo(
     () => summary?.rows.filter((row) => row.implemented && strategyIsActionable(row.recommendedStrategy)) ?? [],
@@ -2208,6 +2217,26 @@ export default function RCMDashboard() {
     }
   }
 
+  function handleSubmitAuditComment() {
+    const nextComment = auditDraft.trim();
+    if (!nextComment) {
+      return;
+    }
+
+    setReportMeta((current) => ({
+      ...current,
+      auditComments: [...current.auditComments, nextComment],
+    }));
+    setAuditDraft("");
+  }
+
+  function handleRemoveAuditComment(index: number) {
+    setReportMeta((current) => ({
+      ...current,
+      auditComments: current.auditComments.filter((_, itemIndex) => itemIndex !== index),
+    }));
+  }
+
   const themeStyle = {
     "--theme-bg": "url('aspirasi-rt2-theme.png')",
   } as CSSProperties;
@@ -2284,13 +2313,35 @@ export default function RCMDashboard() {
           <label className="comment-field">
             <span>RCM Audit Comment</span>
             <textarea
-              onChange={(event) => setReportMeta({ ...reportMeta, auditComment: event.target.value })}
+              onChange={(event) => setAuditDraft(event.target.value)}
               placeholder="Type management comment for the audit session report..."
-              rows={7}
-              value={reportMeta.auditComment}
+              rows={5}
+              value={auditDraft}
             />
-            <small>Auto-saved in this browser and included in exported reports.</small>
           </label>
+          <button
+            className="comment-submit"
+            disabled={!auditDraft.trim()}
+            onClick={handleSubmitAuditComment}
+            type="button"
+          >
+            Submit Comment
+          </button>
+          <div className="comment-list">
+            {reportMeta.auditComments.length ? (
+              reportMeta.auditComments.map((comment, index) => (
+                <article className="comment-item" key={`${comment}-${index}`}>
+                  <span>Comment {index + 1}</span>
+                  <p>{comment}</p>
+                  <button onClick={() => handleRemoveAuditComment(index)} type="button">
+                    Remove
+                  </button>
+                </article>
+              ))
+            ) : (
+              <small>No submitted audit comments.</small>
+            )}
+          </div>
           <div className="source-box">
             <span>Source</span>
             <strong>{summary?.fileName ?? "No workbook loaded"}</strong>
