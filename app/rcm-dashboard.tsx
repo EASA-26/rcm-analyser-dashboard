@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, type CSSProperties, useMemo, useState } from "react";
+import { ChangeEvent, type CSSProperties, useEffect, useMemo, useState } from "react";
 
 type CellValue = string | number | boolean | null;
 
@@ -11,6 +11,7 @@ type RCMRow = {
   rcmId: string;
   rcmNo: string;
   version: string;
+  assetType: string;
   reference: string;
   functionId: string;
   functionText: string;
@@ -78,6 +79,7 @@ type ReportMeta = {
   assetName: string;
   analysisDate: string;
   auditDate: string;
+  auditComment: string;
   preparedBy: string;
 };
 
@@ -139,6 +141,8 @@ const CHART_COLORS = [
   "#0b3d91",
 ];
 
+const AUDIT_COMMENT_STORAGE_KEY = "rcm-genco-audit-comment";
+
 function normalizeHeader(value: CellValue) {
   return String(value ?? "")
     .trim()
@@ -151,6 +155,22 @@ function text(value: CellValue) {
     return "";
   }
   return String(value).trim();
+}
+
+function isUsableText(value: string) {
+  const normalized = value.trim().toLowerCase();
+  return Boolean(normalized) && !["n/a", "na", "not applicable", "-", "nil"].includes(normalized);
+}
+
+function firstUsable<T>(items: T[], getValue: (item: T) => string) {
+  return items.map(getValue).find(isUsableText) ?? "";
+}
+
+function loadSavedAuditComment() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  return window.localStorage.getItem(AUDIT_COMMENT_STORAGE_KEY) ?? "";
 }
 
 function isTrue(value: CellValue) {
@@ -239,6 +259,7 @@ function toRcmRows(rawRows: RawRow[]) {
         rcmId: text(getField(row, ["RCM_ID", "RCM ID"])),
         rcmNo: text(getField(row, ["RCM_No", "RCM No"])),
         version: text(getField(row, ["Version"])),
+        assetType: text(getField(row, ["Asset_Type", "Asset Type"])),
         reference,
         functionId,
         functionText: text(getField(row, ["Function"])),
@@ -358,10 +379,12 @@ function summarizeRows(
     .sort((a, b) => b.duplicateCount - a.duplicateCount)
     .slice(0, 8);
 
-  const site = rows.find((row) => row.site)?.site ?? "";
-  const rcmId = rows.find((row) => row.rcmId)?.rcmId ?? "";
+  const site = firstUsable(rows, (row) => row.site);
+  const rcmId = firstUsable(rows, (row) => row.rcmId);
+  const assetType = firstUsable(rows, (row) => row.assetType);
   const assetName =
-    rows.find((row) => row.rcmId)?.rcmId?.split("-").slice(-1)[0]?.replace(/[._]/g, " ") ||
+    assetType ||
+    rcmId?.split("-").slice(-1)[0]?.replace(/[._]/g, " ") ||
     "Uploaded RCM Asset";
 
   return {
@@ -1356,13 +1379,29 @@ function patchSystemBoundarySlide(xml: string) {
   return next;
 }
 
-function patchAuditSessionSlide(xml: string) {
-  return blankShapeTexts(xml, [
-    "No.NameRolePosition",
-    "Venue",
-    "The management of",
-    "Auditors",
-  ]);
+function patchAuditSessionSlide(xml: string, meta: ReportMeta) {
+  const doc = parseXml(xml);
+  const auditComment = meta.auditComment.trim();
+
+  for (const shape of [...elementsByLocalName(doc, "sp"), ...elementsByLocalName(doc, "graphicFrame")]) {
+    const fullText = elementsByLocalName(shape, "t")
+      .map((node) => node.textContent ?? "")
+      .join("");
+
+    if (fullText.includes("No.NameRolePosition") || fullText.includes("Venue")) {
+      setTextNodesText(shape, "");
+    }
+
+    if (fullText.includes("The management of")) {
+      setTextNodesText(shape, auditComment ? "RCM Audit Comment" : "");
+    }
+
+    if (fullText.includes("Auditors")) {
+      setTextNodesText(shape, auditComment);
+    }
+  }
+
+  return new XMLSerializer().serializeToString(doc);
 }
 
 function patchComparisonSlide(xml: string, rows: ComparisonRow[], startIndex: number, pageNumber: number) {
@@ -1650,6 +1689,17 @@ function exportPdfReport(summary: AnalysisSummary, meta: ReportMeta) {
             list-style: none;
             padding: 10px 12px;
           }
+          .audit-comment {
+            background: #fff3cb;
+            border: 1px solid #d7b85c;
+            border-radius: 8px;
+            color: #12233b;
+            font-size: 13px;
+            line-height: 1.5;
+            min-height: 110px;
+            padding: 14px;
+            white-space: pre-wrap;
+          }
           .table-wrap {
             border: 1px solid #d8e7f2;
             border-radius: 8px;
@@ -1748,6 +1798,11 @@ function exportPdfReport(summary: AnalysisSummary, meta: ReportMeta) {
               ${recommendations.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
             </ol>
           </section>
+          <section class="section">
+            <span class="section-kicker">RCM Audit Session</span>
+            <h3>Management audit comment</h3>
+            <div class="audit-comment">${htmlCell(meta.auditComment || "No audit comment recorded.")}</div>
+          </section>
           <div class="footer">Generated ${escapeHtml(generatedAt)} from ${escapeHtml(summary.sheetName)} - ${summary.totalRows} RCM rows.</div>
         </section>
 
@@ -1787,6 +1842,7 @@ function exportPdfReport(summary: AnalysisSummary, meta: ReportMeta) {
               ["Analysis Date", meta.analysisDate || "-"],
               ["Audit Date", meta.auditDate || "-"],
               ["RCM ID", summary.metadata.rcmId || "-"],
+              ["RCM Audit Comment", meta.auditComment || "-"],
               ["Rows Analysed", summary.totalRows],
             ])}
           </section>
@@ -1968,7 +2024,7 @@ async function exportPatchedPptx(summary: AnalysisSummary, meta: ReportMeta) {
 
   entries.set(
     "ppt/slides/slide13.xml",
-    encoder.encode(patchAuditSessionSlide(getEntryText("ppt/slides/slide13.xml"))),
+    encoder.encode(patchAuditSessionSlide(getEntryText("ppt/slides/slide13.xml"), meta)),
   );
 
   const slideFourteen = getEntryText("ppt/slides/slide14.xml");
@@ -2066,8 +2122,13 @@ export default function RCMDashboard() {
     assetName: "Generator Transformers",
     analysisDate: "4th - 7th August 2025",
     auditDate: "3rd October 2025",
+    auditComment: loadSavedAuditComment(),
     preparedBy: "RCM Planning",
   });
+
+  useEffect(() => {
+    window.localStorage.setItem(AUDIT_COMMENT_STORAGE_KEY, reportMeta.auditComment);
+  }, [reportMeta.auditComment]);
 
   const implementedRows = useMemo(
     () => summary?.rows.filter((row) => row.implemented && strategyIsActionable(row.recommendedStrategy)) ?? [],
@@ -2219,6 +2280,16 @@ export default function RCMDashboard() {
               onChange={(event) => setReportMeta({ ...reportMeta, auditDate: event.target.value })}
               value={reportMeta.auditDate}
             />
+          </label>
+          <label className="comment-field">
+            <span>RCM Audit Comment</span>
+            <textarea
+              onChange={(event) => setReportMeta({ ...reportMeta, auditComment: event.target.value })}
+              placeholder="Type management comment for the audit session report..."
+              rows={7}
+              value={reportMeta.auditComment}
+            />
+            <small>Auto-saved in this browser and included in exported reports.</small>
           </label>
           <div className="source-box">
             <span>Source</span>

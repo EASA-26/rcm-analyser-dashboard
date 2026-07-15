@@ -35,7 +35,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -268,7 +269,8 @@ button:disabled {
   text-transform: uppercase;
 }
 
-.side-panel input {
+.side-panel input,
+.side-panel textarea {
   background: rgba(255, 255, 255, 0.82);
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -278,9 +280,23 @@ button:disabled {
   width: 100%;
 }
 
-.side-panel input:focus {
+.side-panel textarea {
+  line-height: 1.42;
+  min-height: 8.5rem;
+  resize: vertical;
+}
+
+.side-panel input:focus,
+.side-panel textarea:focus {
   border-color: var(--blue);
   box-shadow: 0 0 0 3px rgba(31, 95, 153, 0.12);
+}
+
+.comment-field small {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.35;
 }
 
 .source-box {
