@@ -1315,47 +1315,6 @@ function setPowerPointGeometry(container: ParentNode, x: number, y: number, cx: 
   extent.setAttribute("cy", String(cy));
 }
 
-function stylePowerPointText(
-  container: ParentNode,
-  options: { bold?: boolean; color?: string; fontSize?: number; italic?: boolean; underline?: boolean },
-) {
-  for (const propertyName of ["rPr", "endParaRPr", "defRPr"]) {
-    for (const properties of elementsByLocalName(container, propertyName)) {
-      if (options.bold !== undefined) {
-        properties.setAttribute("b", options.bold ? "1" : "0");
-      }
-      if (options.italic !== undefined) {
-        properties.setAttribute("i", options.italic ? "1" : "0");
-      }
-      if (options.underline !== undefined) {
-        properties.setAttribute("u", options.underline ? "sng" : "none");
-      }
-      if (options.fontSize) {
-        properties.setAttribute("sz", String(options.fontSize));
-      }
-      if (options.color) {
-        let solidFill = firstElementByLocalName(properties, "solidFill");
-        if (!solidFill) {
-          solidFill = properties.ownerDocument.createElementNS(
-            "http://schemas.openxmlformats.org/drawingml/2006/main",
-            "a:solidFill",
-          );
-          properties.appendChild(solidFill);
-        }
-        let color = firstElementByLocalName(solidFill, "srgbClr");
-        if (!color) {
-          color = properties.ownerDocument.createElementNS(
-            "http://schemas.openxmlformats.org/drawingml/2006/main",
-            "a:srgbClr",
-          );
-          solidFill.appendChild(color);
-        }
-        color.setAttribute("val", options.color);
-      }
-    }
-  }
-}
-
 function setPowerPointParagraphAlignment(container: ParentNode, alignment: "ctr" | "l" | "r") {
   for (const properties of elementsByLocalName(container, "pPr")) {
     properties.setAttribute("algn", alignment);
@@ -1494,7 +1453,6 @@ function patchAuditSessionSlide(xml: string, meta: ReportMeta) {
         setTextNodesText(shape, "System :\t\t\t\tVenue :\nAnalysis date:");
         setPowerPointGeometry(shape, tableLeft, metaTop, tableWidth, 470000);
         forcePlainPowerPointText(shape);
-        stylePowerPointText(shape, { bold: false, fontSize: 1800, underline: false });
       } else {
         setTextNodesText(shape, "");
         setPowerPointGeometry(shape, tableLeft, tableTop, tableWidth, tableHeight);
@@ -1505,7 +1463,6 @@ function patchAuditSessionSlide(xml: string, meta: ReportMeta) {
       setTextNodesText(shape, "RCM Audit Feedback");
       setPowerPointGeometry(shape, feedbackLeft, titleTop, feedbackWidth, 270000);
       forcePlainPowerPointText(shape);
-      stylePowerPointText(shape, { bold: false, color: "1F4E79", fontSize: 1800, italic: true, underline: false });
       setPowerPointParagraphAlignment(shape, "ctr");
     }
 
@@ -1520,17 +1477,30 @@ function patchAuditSessionSlide(xml: string, meta: ReportMeta) {
   return new XMLSerializer().serializeToString(doc);
 }
 
+const COMPARISON_ROWS_PER_SLIDE = 8;
+const COLLAPSED_COMPARISON_ROW_HEIGHT = 60000;
+
 function patchComparisonSlide(xml: string, rows: ComparisonRow[], startIndex: number, pageNumber: number) {
   const doc = parseXml(xml);
   const table = firstTable(doc);
   if (table) {
     const pptRows = tableRows(table);
     const bodyRows = pptRows.slice(3);
+    const visibleRows = Math.min(COMPARISON_ROWS_PER_SLIDE, bodyRows.length);
+    const collapsedRows = Math.max(0, bodyRows.length - visibleRows);
+    const currentBodyHeight = bodyRows.reduce((total, row) => total + Number(row.getAttribute("h") || 0), 0);
+    const visibleRowHeight = Math.max(
+      260000,
+      Math.floor((currentBodyHeight - collapsedRows * COLLAPSED_COMPARISON_ROW_HEIGHT) / Math.max(1, visibleRows)),
+    );
+
     bodyRows.forEach((row, offset) => {
-      const planRow = rows[startIndex + offset];
+      const isVisibleRow = offset < COMPARISON_ROWS_PER_SLIDE;
+      const planRow = isVisibleRow ? rows[startIndex + offset] : undefined;
       const values = planRow
         ? [...planRow.current, "\u00a0", ...planRow.recommended]
         : ["", "", "", "", "", "", "\u00a0", "", "", "", "", "", "", ""];
+      row.setAttribute("h", String(isVisibleRow ? visibleRowHeight : COLLAPSED_COMPARISON_ROW_HEIGHT));
       tableCells(row).forEach((cell, cellIndex) => setTableCellText(cell, values[cellIndex] ?? ""));
     });
   }
@@ -2149,7 +2119,7 @@ async function exportPatchedPptx(summary: AnalysisSummary, meta: ReportMeta) {
         patchComparisonSlide(
           getEntryText(`ppt/slides/slide${slideNumber}.xml`),
           comparisonRows,
-          index * 14,
+          index * COMPARISON_ROWS_PER_SLIDE,
           6 + index,
         ),
       ),
