@@ -144,6 +144,15 @@ const CHART_COLORS = [
 
 const AUDIT_COMMENT_STORAGE_KEY = "rcm-genco-audit-comment";
 const AUDIT_COMMENTS_STORAGE_KEY = "rcm-genco-audit-comments";
+const ANALYSIS_DB_NAME = "rcm-genco-dashboard";
+const ANALYSIS_DB_VERSION = 1;
+const ANALYSIS_STORE_NAME = "analysis";
+const ANALYSIS_RECORD_KEY = "latest";
+
+type PersistedAnalysisRecord = {
+  savedAt: string;
+  summary: AnalysisSummary;
+};
 
 function normalizeHeader(value: CellValue) {
   return String(value ?? "")
@@ -187,6 +196,85 @@ function loadSavedAuditComments() {
 
   const legacyComment = text(window.localStorage.getItem(AUDIT_COMMENT_STORAGE_KEY));
   return legacyComment ? [legacyComment] : [];
+}
+
+function openAnalysisDatabase() {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    if (typeof indexedDB === "undefined") {
+      reject(new Error("Browser storage is unavailable."));
+      return;
+    }
+
+    const request = indexedDB.open(ANALYSIS_DB_NAME, ANALYSIS_DB_VERSION);
+    request.onerror = () => reject(request.error ?? new Error("Analysis storage could not be opened."));
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(ANALYSIS_STORE_NAME)) {
+        database.createObjectStore(ANALYSIS_STORE_NAME);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+  });
+}
+
+async function readPersistedAnalysis() {
+  const database = await openAnalysisDatabase();
+  return new Promise<AnalysisSummary | null>((resolve, reject) => {
+    const transaction = database.transaction(ANALYSIS_STORE_NAME, "readonly");
+    const store = transaction.objectStore(ANALYSIS_STORE_NAME);
+    const request = store.get(ANALYSIS_RECORD_KEY);
+
+    request.onerror = () => reject(request.error ?? new Error("Saved analysis could not be read."));
+    request.onsuccess = () => {
+      const record = request.result as PersistedAnalysisRecord | undefined;
+      resolve(record?.summary ?? null);
+    };
+    transaction.oncomplete = () => database.close();
+    transaction.onerror = () => {
+      database.close();
+      reject(transaction.error ?? new Error("Saved analysis could not be read."));
+    };
+  });
+}
+
+async function writePersistedAnalysis(summary: AnalysisSummary) {
+  const database = await openAnalysisDatabase();
+  return new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(ANALYSIS_STORE_NAME, "readwrite");
+    const store = transaction.objectStore(ANALYSIS_STORE_NAME);
+    const record: PersistedAnalysisRecord = {
+      savedAt: new Date().toISOString(),
+      summary,
+    };
+
+    store.put(record, ANALYSIS_RECORD_KEY);
+    transaction.oncomplete = () => {
+      database.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      database.close();
+      reject(transaction.error ?? new Error("Analysis could not be saved."));
+    };
+  });
+}
+
+async function clearPersistedAnalysis() {
+  const database = await openAnalysisDatabase();
+  return new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(ANALYSIS_STORE_NAME, "readwrite");
+    const store = transaction.objectStore(ANALYSIS_STORE_NAME);
+
+    store.delete(ANALYSIS_RECORD_KEY);
+    transaction.oncomplete = () => {
+      database.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      database.close();
+      reject(transaction.error ?? new Error("Saved analysis could not be cleared."));
+    };
+  });
 }
 
 function formatAuditComments(comments: string[]) {
@@ -2222,6 +2310,8 @@ export default function RCMDashboard() {
   const [isExporting, setIsExporting] = useState(false);
   const [isWorkingExporting, setIsWorkingExporting] = useState(false);
   const [isPdfExporting, setIsPdfExporting] = useState(false);
+  const [isResettingAnalysis, setIsResettingAnalysis] = useState(false);
+  const [isRestoringAnalysis, setIsRestoringAnalysis] = useState(true);
   const [auditDraft, setAuditDraft] = useState("");
   const [reportMeta, setReportMeta] = useState<ReportMeta>({
     station: "Station",
@@ -2237,6 +2327,36 @@ export default function RCMDashboard() {
     window.localStorage.setItem(AUDIT_COMMENTS_STORAGE_KEY, JSON.stringify(reportMeta.auditComments));
     window.localStorage.removeItem(AUDIT_COMMENT_STORAGE_KEY);
   }, [reportMeta.auditComments]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    readPersistedAnalysis()
+      .then((savedSummary) => {
+        if (!isMounted || !savedSummary) {
+          return;
+        }
+
+        setSummary(savedSummary);
+        setReportMeta((current) => ({
+          ...current,
+          station: savedSummary.metadata.site || current.station,
+          assetName: savedSummary.metadata.assetName || current.assetName,
+        }));
+      })
+      .catch(() => {
+        // If browser persistence is blocked, the dashboard still works from a fresh upload.
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsRestoringAnalysis(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const implementedRows = useMemo(
     () => summary?.rows.filter((row) => row.implemented && strategyIsActionable(row.recommendedStrategy)) ?? [],
@@ -2263,6 +2383,11 @@ export default function RCMDashboard() {
         station: nextSummary.metadata.site || current.station,
         assetName: nextSummary.metadata.assetName || current.assetName,
       }));
+      try {
+        await writePersistedAnalysis(nextSummary);
+      } catch {
+        setError("Analysis loaded, but it could not be saved for the next session.");
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The file could not be analysed.");
     } finally {
@@ -2316,6 +2441,29 @@ export default function RCMDashboard() {
     }
   }
 
+  async function handleResetAnalysis() {
+    setIsResettingAnalysis(true);
+    setError("");
+    let resetWarning = "";
+    try {
+      await clearPersistedAnalysis();
+    } catch (cause) {
+      resetWarning = cause instanceof Error ? cause.message : "The saved analysis could not be reset.";
+    } finally {
+      setSummary(null);
+      setAuditDraft("");
+      setReportMeta((current) => ({
+        ...current,
+        station: "Station",
+        assetName: "Generator Transformers",
+      }));
+      if (resetWarning) {
+        setError(`${resetWarning} The on-screen analysis has been reset.`);
+      }
+      setIsResettingAnalysis(false);
+    }
+  }
+
   function handleSubmitAuditComment() {
     const nextComment = auditDraft.trim();
     if (!nextComment) {
@@ -2354,8 +2502,8 @@ export default function RCMDashboard() {
           </div>
           <div className="top-actions">
             <label className="file-button">
-              <input accept=".xlsx,.xlsm" onChange={handleFile} type="file" />
-              {isLoading ? "Reading workbook..." : "Upload raw data"}
+              <input accept=".xlsx,.xlsm" disabled={isLoading || isRestoringAnalysis} onChange={handleFile} type="file" />
+              {isRestoringAnalysis ? "Restoring analysis..." : isLoading ? "Reading workbook..." : "Upload raw data"}
             </label>
             <button disabled={!summary || isExporting} onClick={handleExport} type="button">
               {isExporting ? "Preparing PPT..." : "Export PowerPoint"}
@@ -2365,6 +2513,9 @@ export default function RCMDashboard() {
             </button>
             <button disabled={!summary || isPdfExporting} onClick={handlePdfExport} type="button">
               {isPdfExporting ? "Preparing PDF..." : "Export PDF Report"}
+            </button>
+            <button disabled={!summary || isResettingAnalysis} onClick={handleResetAnalysis} type="button">
+              {isResettingAnalysis ? "Resetting..." : "Reset Analysis"}
             </button>
           </div>
         </div>
