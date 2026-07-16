@@ -1604,19 +1604,8 @@ function patchComparisonSlide(xml: string, rows: ComparisonRow[], startIndex: nu
 }
 
 function buildRecommendations(summary: AnalysisSummary, meta: ReportMeta) {
-  const topTrade = summary.workCenters[0];
-  const topStrategy = summary.topStrategies[0];
-  const duplicateCount = summary.duplicateRows.reduce((total, row) => total + row.duplicateCount, 0);
   return [
-    `Endorse the ${summary.actionableTasks} proposed maintenance tasks for ${meta.assetName}, with priority given to the ${summary.pendingTasks} newly added tasks before ERMS upload.`,
-    `Assign task ownership by work centre and interval in the RCM Recommended Maintenance Plan${topTrade ? `, starting with ${topTrade.name} because it carries ${topTrade.total} task(s)` : ""}.`,
-    `Use the exported working file as the controlled task register so approved changes, current maintenance references, intervals and remarks remain traceable to the uploaded raw RCM data.`,
-    topStrategy
-      ? `Prioritise implementation controls for ${topStrategy.code} tasks, as this is the largest recommended strategy group in the analysis.`
-      : "Prioritise implementation controls for the highest-volume recommended strategy group in the analysis.",
-    duplicateCount
-      ? `Review duplicate failure-mode/task combinations before upload to reduce ERMS master-data duplication and align common tasks under one maintainable plan.`
-      : "Review the RCM register annually and after any major failure, plant modification or operating context change to keep the maintenance plan current.",
+    `Endorse the ${summary.actionableTasks} proposed maintenance tasks for ${meta.assetName}, and all task shall be register in ERMS and checksheet shall be updated.`,
   ];
 }
 
